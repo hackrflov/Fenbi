@@ -59,6 +59,7 @@ class Fenbi():
 
     def category_map(self):
         docs = db.category.find()
+        self.freq = {}
         for first in docs:
             name1 = first['name']
             for second in first['children']:
@@ -67,11 +68,20 @@ class Fenbi():
                 if second['children']:
                     for third in second['children']:
                         name3 = third['name']
-                        path = '{}'
-                        self.cmap[name3] = {'level': 3, 'cate2': name2, 'cate1': name1, 'id': third['id'], 'count': third['count'],
-                                'id2': second['id'], 'id1': first['id']}
+                        path = '{} > {} > {}'.format(name1.encode('utf-8'), name2.encode('utf8'), name3.encode('utf-8'))
+                        self.cmap[path] = {'level': 3, 'cate2': name2, 'cate1': name1, 'id': third['id'], 'count': third['count'],
+                                'id2': second['id'], 'id1': first['id'], 'cate3': name3}
+                        count = db.question.find({'path': path}).count()
+                        print 'Category {} should have {} questions, now get {}'.format(path, third['count'], count)
+                        if name3 in self.freq:
+                            self.freq[name3] += 1
+                        else:
+                            self.freq[name3] = 1
                 else:
-                    self.cmap[name2] = {'level': 2, 'cate1': name1, 'id2': second['id'], 'id': second['id'], 'id1': first['id'], 'count': second['count']}
+                    path = '{} > {}'.format(name2.encode('utf8'), name3.encode('utf-8'))
+                    self.cmap[path] = {'level': 2, 'cate1': name1, 'cate2': name2, 'id2': second['id'], 'id': second['id'], 'id1': first['id'], 'count': second['count']}
+                    count = db.question.find({'path': path}).count()
+                    print 'Category {} should have {} questions, now get {}'.format(path, second['count'], count)
 
     def fill_list(self):
         self.fetch_list(is_fill=True)
@@ -81,7 +91,8 @@ class Fenbi():
         size = len(self.cmap.keys())
         kp_count = 0
         # 按照cmap进行搜索
-        for kp_name, kp_v in self.cmap.items():
+        for path, kp_v in self.cmap.items():
+            kp_name = path.split(' > ')[-1].decode('utf-8')
             level = kp_v['level']
             kp_id = kp_v['id']
             kp_total = kp_v['count']
@@ -95,8 +106,7 @@ class Fenbi():
                 # 检查该考点是否全部录入
                 p_key = 'cate2' if level == 3 else 'cate1'
                 p_value = kp_v['cate2'] if level == 3 else kp_v['cate1']
-                exist_list = [doc for doc in db.question.find({ '$and' : [{ 'kp_name' : kp_name }, { p_key : p_value }] })]
-                path = '{}{}-{}'.format(kp_v['cate1'].encode('utf-8') + '-' if level == 3 else '', p_value.encode('utf8'), kp_name.encode('utf-8'))
+                exist_list = [doc for doc in db.question.find({ 'path' : path })]
                 # 检查是否进度完成
                 progress = db.progress.find_one({'path': path})
                 if progress and progress.get('finished') == True:
@@ -111,8 +121,8 @@ class Fenbi():
                     repeat_count = 0
                     last_record = kp_num
                 # 如果未增长次数超过上限，则视为已解决
-                repeat_limit = 5 if is_fill else 1
-                if kp_num == kp_total or repeat_count == repeat_limit:
+                repeat_limit = 30 if is_fill else 1
+                if kp_num >= kp_total - 1 or repeat_count == repeat_limit:
                     log.info('Category {} is finished'.format(path))
                     if is_fill:
                         db.progress.update_one({'path': path }, { '$set' : {'path': path, 'finished': True } }, upsert=True)
@@ -124,6 +134,7 @@ class Fenbi():
                 data = json.loads(r.text)
                 tmp_qlist = data['sheet']['questionIds']
                 qlist = [qt for qt in tmp_qlist if qt not in exist_qlist]  # 去掉已经存在的项
+
                 # 存入mongo
                 for q in qlist:
                     op = UpdateOne({'id': q}, { '$set': { 'id' : q } }, upsert=True)
@@ -131,7 +142,7 @@ class Fenbi():
                 self.write()
 
                 # 录入详细数据
-                cates = { 'cate1' : kp_v['cate1'], 'kp_name' : kp_name }
+                cates = { 'cate1' : kp_v['cate1'], 'path' : path }
                 if level == 3:
                     cates['cate3'] = kp_name
                     cates['cate2'] = kp_v['cate2']
@@ -184,9 +195,10 @@ class Fenbi():
             q.update({'keypoint': k_data[i]})
             # 检查类目是否不符
             q_cates = [doc['name'] for doc in k_data[i]]
-            if cates['kp_name'] == u'综合分析':
+            kp_name = cates['path'].split(' > ')[-1].decode('utf-8')
+            if kp_name == u'综合分析':
                 q_cates.append(u'综合材料')
-            if cates['kp_name'] not in q_cates:  # 如果考点没有对上，则不录入
+            if kp_name not in q_cates:  # 如果考点没有对上，则不录入
                 continue
             else:
                 q.update(cates)
@@ -226,6 +238,22 @@ class Fenbi():
                            'count' : { '$sum' : 1 } } },
         ])
         clear_list = [doc['_id'] for doc in docs if doc['count'] > 1]
+
+        # 特殊: 清除三级类目一样的
+        """
+        for k, v in self.freq.items():
+            if v >= 2:
+                db.question.delete_many({'cate3': k})
+        """
+
+    def modify_db(self):
+        for path, kp_v in self.cmap.items():
+            if kp_v['level'] == 3:
+                old = '{}-{}-{}'.format(kp_v['cate1'].encode('utf-8'), kp_v['cate2'].encode('utf8'), kp_v['cate3'].encode('utf-8'))
+                db.question.update_many({'path': old}, { '$set': { 'path' : path } })
+            else:
+                old = '{}-{}'.format(kp_v['cate1'].encode('utf8'), kp_v['cate2'].encode('utf-8'))
+                db.question.update_many({'path': old}, { '$set': { 'path' : path } })
 
 if __name__ == '__main__':
     if len(sys.argv) >= 2:

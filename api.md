@@ -101,6 +101,10 @@ Image
 -----
 url: http://fb.fbstatic.cn/api/xingce/images/{id}.png
 
+Latex
+-----
+url: http://fb.fbstatic.cn/api/xingce/accessories/formulas?latex={sha1}&fontSize=48&color=666666
+
 Category
 --------
 url: http://fenbi.com/android/xingce/categories
