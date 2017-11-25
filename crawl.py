@@ -78,7 +78,7 @@ class Fenbi():
                         else:
                             self.freq[name3] = 1
                 else:
-                    path = '{} > {}'.format(name2.encode('utf8'), name3.encode('utf-8'))
+                    path = '{} > {}'.format(name1.encode('utf8'), name2.encode('utf-8'))
                     self.cmap[path] = {'level': 2, 'cate1': name1, 'cate2': name2, 'id2': second['id'], 'id': second['id'], 'id1': first['id'], 'count': second['count']}
                     count = db.question.find({'path': path}).count()
                     print 'Category {} should have {} questions, now get {}'.format(path, second['count'], count)
@@ -97,6 +97,8 @@ class Fenbi():
             kp_id = kp_v['id']
             kp_total = kp_v['count']
             if kp_total == 0:
+                continue
+            if path != '资料分析 > 综合分析':
                 continue
             kp_count += 1
             last_record = -1  # 记录上一次总数
@@ -121,8 +123,8 @@ class Fenbi():
                     repeat_count = 0
                     last_record = kp_num
                 # 如果未增长次数超过上限，则视为已解决
-                repeat_limit = 30 if is_fill else 1
-                if kp_num >= kp_total - 1 or repeat_count == repeat_limit:
+                repeat_limit = 10 if is_fill else 1
+                if kp_num >= kp_total or repeat_count == repeat_limit:
                     log.info('Category {} is finished'.format(path))
                     if is_fill:
                         db.progress.update_one({'path': path }, { '$set' : {'path': path, 'finished': True } }, upsert=True)
@@ -152,17 +154,25 @@ class Fenbi():
                 self.fetch_detail(qlist, cates)
                 time.sleep(2)
 
-    def fetch_detail(self, qlist, cates):
+    def fill_detail(self):
+        while True:
+            key_fields = [ 'path', 'cate1', 'cate2', 'content', 'solution', 'correctRatio']
+            filt = [{ k : { '$exists' : False } } for k in key_fields]
+            cnt = db.question.find({ '$or': filt }).count()
+            if cnt > 0:
+                log.info('Fetching detail, {} remains...'.format(cnt))
+                self.fetch_detail()
+            else:
+                break
+
+    def fetch_detail(self, qlist=[], cates={}):
         if not qlist:
-            pass
-            '''
             # check every document
             bulk_size = 100
-            key_fields = [ 'cate1', 'cate2', 'cate3', 'content', 'solution', 'correctRatio']
+            key_fields = [ 'path', 'cate1', 'cate2', 'cate3', 'content', 'solution', 'correctRatio']
             filt = [{ k : { '$exists' : False } } for k in key_fields]
             docs = db.question.find({ '$or': filt }, limit=bulk_size)
             qlist = [str(doc['id']) for doc in docs]
-            '''
         else:
             qlist = [str(qid) for qid in qlist]
 
@@ -194,16 +204,44 @@ class Fenbi():
             q.update(m_data[i])
             q.update({'keypoint': k_data[i]})
             # 检查类目是否不符
-            q_cates = [doc['name'] for doc in k_data[i]]
-            kp_name = cates['path'].split(' > ')[-1].decode('utf-8')
-            if kp_name == u'综合分析':
-                q_cates.append(u'综合材料')
-            if kp_name not in q_cates:  # 如果考点没有对上，则不录入
-                continue
+            if cates:
+                q_cates = [doc['name'] for doc in k_data[i]]
+                kp_name = cates['path'].split(' > ')[-1].decode('utf-8')
+                if kp_name == u'综合分析':
+                    q_cates.append(u'综合资料')
+                if kp_name not in q_cates:  # 如果考点没有对上，则不录入
+                    continue
+                else:
+                    q.update(cates)
+                    op = UpdateOne({'id': qid}, { '$set': q })
+                    self.add_req(op, write=False)
             else:
-                q.update(cates)
-                op = UpdateOne({'id': qid}, { '$set': q })
-                self.add_req(op, write=False)
+                for kp in k_data[i]:
+                    kp_id = kp['id']
+                    kp_name = kp['name']
+                    is_matched = False
+                    for k, v in self.cmap.items():
+                        path = k
+                        if kp_name == u'综合资料':
+                            kp_id = 626318
+                        pdb.set_trace()
+                        if v['id'] == kp_id:
+                            kp_count = db.question.find({'path': path}).count()
+                            if kp_count < v['count']:
+                                q['path'] = path
+                                q['cate1'] = v['cate1']
+                                if v['level'] == 3:
+                                    q['cate3'] = v['cate3']
+                                    q['cate2'] = v['cate2']
+                                else:
+                                    q['cate3'] = None
+                                    q['cate2'] = v['cate2']
+                                op = UpdateOne({'id': qid}, { '$set': q })
+                                self.add_req(op, write=False)
+                                is_matched = True
+                                break
+                    if is_matched:
+                        break
         self.write()  # 保证写入
         time.sleep(0.5)
 
@@ -263,5 +301,5 @@ if __name__ == '__main__':
         eval(job_name)
     else:
         fenbi = Fenbi()
-        fenbi.fetch_detail()
+        fenbi.fetch_list()
 
