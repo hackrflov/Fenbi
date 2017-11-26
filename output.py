@@ -34,36 +34,24 @@ class Util():
         for path in paths:
             print path
             path = path.encode('utf-8')
-            # test
             url = re.sub(' > ', '%20%3E%20', path)
             print 'Now outputing {}.pdf'.format(url)
             docs = [doc for doc in db.question.find({'path': path }).sort('correctRatio') ]
             merger = PdfFileMerger()
             for i, doc in enumerate(docs):
                 print 'No.{} / {}'.format(i+1, len(docs))
+                # 添加题目序号
                 doc['content'] = '[p]{}. '.format(i+1) + doc['content'][3:]
+                del doc['_id']
                 self.encode(doc)
-                self.write(doc)
-                filename = self.root + '{}.pdf'.format(doc['id'])
-                merger.append(PdfFileReader(file(filename, 'rb')))
-            # 集合同一类别
-            combo_f = self.root + '{}.pdf'.format(path)
-            merger.write(combo_f)
-            # 及时删除过渡文件
-            for doc in docs:
-                filename = self.root + '{}.pdf'.format(doc['id'])
-                os.remove(filename)
+            self.write(docs, path)
 
-    def write(self, question):
-        del question['_id']
-        qid = question['id']
-        #params = 'json={}'.format(json.dumps(question))
+    def write(self, docs, path):
         f = open(self.root + 'tmp.txt', 'w')
-        f.write(json.dumps(question))
+        f.write(json.dumps(docs))
         f.truncate()
         f.close()
-        path = self.root + '{}.pdf'.format(qid)
-        #url = 'http://localhost/fenbi/index.php?' + params
+        path = self.root + '{}.pdf'.format(path)
         url = 'http://localhost/fenbi/index.php'
         options = { 'quiet': '' }
         pdfkit.from_url(url, path, options=options)

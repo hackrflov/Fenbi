@@ -6,35 +6,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <!-- CSS Files -->
     <link href="https://cdn.bootcss.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .top-img {
+            vertical-align: top;
+        }
+    </style>
 </head>
 <body>
     <?php 
         function to_array($str) {
             $str = str_replace('u\'', '"', $str);
             $str = str_replace('\'', '"', $str);
-            $str = str_replace('[p]', '<p>', $str);
-            $str = str_replace('[/p]', '</p>', $str);
             return json_decode($str, true);
         }
         $filename = 'tmp.txt';
         $handle = fopen($filename, "r");
         $contents = fread($handle, filesize($filename));
         fclose($handle);
-        //$data = json_decode($contents);
-        $params = to_array($contents);
         $alpha = range('A', 'Z');
+        $data = to_array($contents);
+        foreach ($data as $params) {
     ?>
     <div class="container">
     <?php 
         $material = $params['material']; 
         if ($material) {
-            echo '材料<br><br>'.$material['content'];
+            echo '材料:<br><br>'.$material['content'];
         }
     ?>
     </div>
     <br><br>
     <div class="container">
-    <?php echo $params['content']; ?>
+        <?php echo $params['content']; ?>
     </div>
     <br><br>
     <div class="container">
@@ -43,7 +46,7 @@
         $type = $acc['type'];
         $options = $acc['options'];
         foreach ($options as $i => $option) {
-            if ($option == $alpha[$i]) {
+            if ($option == $alpha[$i] or $option == '<p>'.$alpha[$i].'</p>') {
                 $option = '答案'.$option;
             } 
             echo $alpha[$i].'.&nbsp;&nbsp;'.$option;
@@ -78,6 +81,7 @@
     <?php echo '解析:<br><br>'.$params['solution']; ?>
     </div>
     <br><br>
+    <?php } ?>
     <!-- Javascript Files -->
     <script src="https://cdn.bootcss.com/jquery/3.2.1/jquery.min.js"></script>
     <script src="https://cdn.bootcss.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
